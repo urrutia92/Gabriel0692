@@ -1,0 +1,244 @@
+---
+title: "STA380HW1"
+author: "Gabriel Urrutia"
+date: "August 7, 2015"
+output: word_document
+---
+Exploratory Analysis
+
+The first part of the question asks whether certain types of voting equipment are more prone to voting undercount. In order to answer this, we first we read in the file which contains the information about Georgia voting data and then, to make our calculations simpler, we create a variable called "undercount" which then represents the difference between the total ballots and the actual total number of votes. Additionally, we make sure to scale the undercount so that the different sizes does not affect the interpretation of percentage. Finally, we plot the scaled undercount against the form of voting employed, whether it was lever, optical, paper or punch and identify any noticeable mishaps in the data.
+```{r}
+georgia = read.csv("georgia2000.csv")
+georgia$undercount = georgia$ballots - georgia$votes
+georgia$undercount = scale(georgia$undercount)
+plot(georgia$equip, georgia$undercount)
+```
+After running this plot, we see that there were proportionally more undercounts coming from the people who used the punch machine. Furthermore, as can be observed from this graph, the largest outliers, where there was an enormous undercount both came from the punch system. The failure of the punch machine in these two counties, these two outliers alone, account for a large proportion of the undercount in the state of Georgia.
+
+The second part of the question asks whether there is a higher effect on the punch undercount when there is a higher presence of racial minority or impoverished individuals in the community. In order to answer this question, we plot the binary variable of whether the community is predominantly poor or not to the voter undercount to see if we see a higher number coming from poor. Were this the case, we would expect to see a higher number of undercount when the value of poor equals 1 than when it equals 0. As can be seen, however, this is not the case. In fact, it is the opposite. That the majority of undercount comes from regions where there are less poor.
+```{r}
+plot(georgia$poor, georgia$undercount)
+```
+
+In order to determine if minorities are predisposed to this undercount mishap, we plot the percentage of African Americans to the amount of undercount. We do not find that there is any correlation between the percentage of African Americans and the undercount. However, there are a few outliers in which there was a significant percentage of undercount and these happen to be points along the graph where the percentage of African Americans is relatively high. This could potentially give us some insights as to whether race may have been involved in these exceptional cases. Additionally, we check to see if African Americans simply were using the type of equipment of punching in which there were more undercounts and we find that they were not, in fact they were using paper more.
+
+```{r}
+plot(georgia$perAA, georgia$undercount)
+plot(georgia$equip, georgia$perAA)
+```
+In conclusion, we do not see that poverty had any effect on undercount. We do see that the type of voting machine used did have an effect, in particular if the machine was a hole puncher. Finally, we see that the biggest outliers occurred within communities that were predominantly African American although not to say that African American communities in general faced this problem.
+
+Bootstrapping
+We first import the "mosaic", "fimport" and "foreach" libraries and install the necessary packages, as well as the daily stock prices for each of the stock indexes over the past 5 years.
+```{r}
+my_seed = 091959
+set.seed(my_seed)
+library(mosaic)
+library(fImport)
+library(foreach)
+mystocks = c("SPY", "LQD", "TLT", "VNQ", "EEM")
+myprices = yahooSeries(mystocks, from='2010-08-06', to='2015-08-05')
+head(myprices)
+```
+
+Next, we group the daily adjusted prices column and name it closingprice. Following this, we define percent return as the change from one day to next, and calculated as the later closing price divided by the previous day's. 
+
+```{r}
+YahooPricesToReturns = function(series) {
+  mycols = grep('Adj.Close', colnames(series))
+  closingprice = series[,mycols]
+  N = nrow(closingprice)
+  percentreturn = as.data.frame(closingprice[2:N,]) / as.data.frame(closingprice[1:(N-1),]) - 1
+  mynames = strsplit(colnames(percentreturn), '.', fixed=TRUE)
+  mynames = lapply(mynames, function(x) return(paste0(x[1], ".PctReturn")))
+  colnames(percentreturn) = mynames
+  as.matrix(na.omit(percentreturn))
+}
+myreturns<-YahooPricesToReturns(myprices)
+```
+
+We then create three hypothetical portfolios of $100,000, each with different weights in order to simulate portfolios of varying levels of risk. We then run 5,000 bootstrap samples of 20-day or full month data samples on each one in order to predict the most accurate estimate value at risk at the 5% level, for different portfolio makeups. The first portfolio example is equally weighted among the five exchange-traded funds and we set the number of days to 20 to rempresent the number of trading days in a given month. We name this portfolio "mystockssim1".
+
+```{r}
+mystockssim1 = foreach(i=1:5000, .combine='rbind') %do% {
+  totalwealth = 100000
+  weights = c(0.2, 0.2, 0.2, 0.2, 0.2)
+  holdings = weights * totalwealth
+  n_days = 20
+  wealthtracker = rep(0, n_days)
+  for(today in 1:n_days) {
+    return.today = resample(myreturns, 1, orig.ids=FALSE)
+    holdings = holdings + holdings*return.today
+    totalwealth = sum(holdings)
+    wealthtracker[today] = totalwealth
+    holdings = weights * totalwealth
+  }
+  wealthtracker
+}
+```
+
+We then test the portfolio in order and determine that the 5% value at risk yields a number equivalent to ~ $3,618.69. This number represents the 5th percentile of how much we can lose in a given month while holding this portfolio.
+
+```{r}
+head(mystockssim1)
+hist(mystockssim1[,n_days], 20)
+
+# Profit/loss
+hist(mystockssim1[,n_days]- 100000)
+
+# Calculate 5% value at risk
+quantile(mystockssim1[,n_days], 0.05) - 100000
+```
+
+Now, we create what should be a safer portfolio, based on historical trends. This portfolio we call "mystockssim2". In this case, we create a portfolio that is compromised entirely of US Treasury Bonds TLT, Investment grade corporate bonds LQD and real estate VNQ. These are all traditionally considered safer investments than domestic equities or emerging markets. Therefore, we would expect the volatility to be lower and the potential gains and losses to also be lower.
+
+```{r}
+mystockssim2 = foreach(i=1:5000, .combine='rbind') %do% {
+  totalwealth = 100000
+  weights = c(0.0, 0.35, 0.35, 0.30, 0.0)
+  holdings = weights * totalwealth
+  n_days = 20
+  wealthtracker = rep(0, n_days)
+  for(today in 1:n_days) {
+    return.today = resample(myreturns, 1, orig.ids=FALSE)
+    holdings = holdings + holdings*return.today
+    totalwealth = sum(holdings)
+    wealthtracker[today] = totalwealth
+    holdings = weights * totalwealth
+    }
+  wealthtracker
+}
+
+hist(mystockssim2[,n_days], 20)
+
+# Profit/loss
+hist(mystockssim2[,n_days]- 100000)
+
+# Calculate 5% value at risk
+quantile(mystockssim2[,n_days], 0.05) - 100000
+```
+
+After running the portfolio "mystockssim2", we find that the 5% at risk value is a loss of about $3,241.52. As expected, this loss is smaller than the equal weighted portfolio which includes domestic equities and investments from emerging markets.
+
+The last type of portfolio that we create is a "risky" portfolio, which can expect to see higher volatility, including gains and losses. In this case, we would expect to see a greater loss represented under the 5% at risk value. In order to create a risky portfolio, we designate "mystockssim3" to be made up of 40% US domestic equties (SPY), 40% emerging market equities (EEM) and 20% real estate (VNQ), with none of the safer investments that are bonds.
+
+```{r}
+mystockssim3 = foreach(i=1:5000, .combine='rbind') %do% {
+  totalwealth = 100000
+  weights = c(0.40, 0.0, 0.0, 0.20, 0.40)
+  holdings = weights * totalwealth
+  n_days = 20
+  wealthtracker = rep(0, n_days)
+  for(today in 1:n_days) {
+    return.today = resample(myreturns, 1, orig.ids=FALSE)
+    holdings = holdings + holdings*return.today
+    totalwealth = sum(holdings)
+    wealthtracker[today] = totalwealth
+    holdings = weights * totalwealth
+    }
+  wealthtracker
+}
+
+hist(mystockssim3[,n_days], 20)
+
+# Profit/loss
+hist(mystockssim3[,n_days]- 100000)
+
+# Calculate 5% value at risk
+quantile(mystockssim3[,n_days], 0.05) - 100000
+```
+
+As expected, we do get a significantly more negative number when we input our portfolio with these parameters. Our 5% at risk value is ~6,855.00, showing that this portfolio by far represents the riskiest option.
+
+In conclusion, in order to make an assessment about which portfolio is the best it depends on the user's interest. If the consumer is interested in long term investment and possibly is more open to market fluctuations if the expected return is higher, we woud recommend the consumer to invest in mystockssim3. If the person is maybe closer to retirement or not looking to take big risks, we would suggest investing in mystockssim2.
+
+Clustering and PCA
+After reading in the file, adding the ggplot2 function to the library and heading the data,  we remove the last two columns of the table, columns 12 and 13, since these are the two variables which we're trying to identify via our different clustering procedures. Next we scale the data to account for the widely varying measurements indices across the variables.
+
+```{r}
+
+library(ggplot2)
+wine = read.csv('wine.csv', header=TRUE)
+head(wine)
+x = wine[,-(12:13)]
+head(x)
+x = scale(x, center=TRUE, scale=TRUE)
+y = scale(x, center=TRUE, scale=TRUE)
+```
+
+The first plot we run is the k means. We cluster around 2 arbitrary means to see if it will divide the data by color. We then plot the color vs alcohol in the original data table and coordinate color by the two classes identified from k means. The result is that the data for the most part lines up according to color, leading us to believe that the k-means is effectively dividing the wine data by red and white.
+
+```{r}
+clust2 = kmeans(x, 2, nstart=500)
+
+qplot(color, alcohol, data=wine, color=factor(clust2$cluster))
+```
+
+Next, we run k-means to see if the data will cluster around different quality levels. In the quality column, there are no entry points that return 1, 2 or 10. Therefore we identify k=7 means to classify around. When we plot the original data against these 7 classifications, however, k-means proves to not be effective.
+
+```{r}
+clust7 = kmeans(y, 7, nstart=500)
+
+qplot(quality, alcohol, data=wine, color=factor(clust7$cluster))
+```
+# PCA
+Now we run the PCA and find that, like K-means it is pretty effective in splitting the data by color, but not as much so when attempting to identify by color.
+
+```{r, echo = FALSE}
+pc1 = prcomp(x, scale=TRUE)
+loadings = pc1$rotation
+scores = pc1$x
+
+qplot(scores[,1], scores[,2], data=wine, color=wine$color, xlab='Component 1', ylab='Component 2')
+qplot(scores[,1], scores[,2], data=wine, color=wine$quality, xlab='Component 1', ylab='Component 2')
+```
+
+In conclusion from the data, we find that both the k-means and the PCA work to classify the data by color when we choose to have 2 centers. The results do show that k- means works a bit better than the PCA though as they are more distinctly separated. Neither the k-means nor the PCA was successful when classifying across 7 centers in clustering by quality.
+
+Market Segmentation
+First, we import the ggplot2 function from the library and we read in all of the social marketing data and indicate that there is a row header and column header. The next step here is to divide the number of customers count that appears for each of the 36 categories and divide it by the number of customers to calculate the actual frequency of the appearance of each category.
+```{r}
+library(ggplot2)
+customers = read.csv("social_marketing.csv", header = TRUE, row.names = 1)
+Z = customers/rowSums(customers)
+```
+Next, we run the Primary component analysis to retrieve information about a number of the most significant primary components, in this case we are trying eight of them. We are choosing each primary component to identify the tail as the five categories which are most frequently cited by customers and teh heads as the five categories which are least frequently mentioned in  customer tweets.
+```{r}
+# PCA
+pc1 = prcomp(Z, scale=TRUE)
+loadings = pc1$rotation
+scores = pc1$x
+
+o1 = order(loadings[,1])
+colnames(Z)[head(o1,5)]
+colnames(Z)[tail(o1,5)]
+
+o2 = order(loadings[,2])
+colnames(Z)[head(o2,5)]
+colnames(Z)[tail(o2,5)]
+
+o3 = order(loadings[,3])
+colnames(Z)[head(o3,5)]
+colnames(Z)[tail(o3,5)]
+
+o4 = order(loadings[,4])
+colnames(Z)[head(o4,5)]
+colnames(Z)[tail(o4,5)]
+
+o5 = order(loadings[,5])
+colnames(Z)[head(o5,5)]
+colnames(Z)[tail(o5,5)]
+
+o6 = order(loadings[,6])
+colnames(Z)[head(o6,5)]
+colnames(Z)[tail(o6,5)]
+
+o7 = order(loadings[,7])
+colnames(Z)[head(o7,5)]
+colnames(Z)[tail(o7,5)]
+
+o8 = order(loadings[,8])
+colnames(Z)[head(o8,5)]
+colnames(Z)[tail(o8,5)]
+```
+Our results show that in the first primary component the most frequently mentioned categories are school, food, parenting, sports and religion. Whereas, the least popular topics correspond to photo sharing, shopping, cooking, fashion and what has been classified as chatter. Insofar as to assess the results, we can say that there is possibly a particular market segment which this primary component could be identifying, which we can say cares more about the subjects in the first set of five. Perhaps, this data is insufficient to draw the lines in this way but we can for sure conclude that when discussion of the five tail end categories is predominant, we see a particularly lower presence of the head set of categories.
